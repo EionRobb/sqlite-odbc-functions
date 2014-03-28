@@ -2,11 +2,13 @@ sqlite-odbc-functions
 =====================
 
 Adds ODBC-compatible functions to SQLite, eg to use with the ODBC driver at http://www.ch-werner.de/sqliteodbc/
+Based on 'extension-functions.c' by Liam Healy from http://www.sqlite.org/contrib/
+Code released into the public domain.
 
 See http://msdn.microsoft.com/en-us/library/ms711813(v=vs.85).aspx for ODBC functions
 
-Supported functions:
-====================
+Supported ODBC functions:
+=========================
 
 String Functions:
 -----------------
@@ -65,3 +67,32 @@ Date and Time Functions:
   * SECOND
   * WEEK
   * YEAR
+
+Missing Functions:
+==================
+  * BIT_LENGTH (ODBC 3.0)
+  * CHAR_LENGTH (ODBC 3.0)
+  * CHARACTER_LENGTH (ODBC 3.0)
+  * CONVERT
+  * CURRENT_DATE (ODBC 3.0)
+  * CURRENT_TIME (ODBC 3.0)
+  * CURRENT_TIMESTAMP (ODBC 3.0)
+  * DATABASE (ODBC 1.0)
+  * DAYNAME (ODBC 2.0)
+  * EXTRACT (ODBC 3.0)
+  * INSERT (ODBC 1.0)
+  * MONTHNAME (ODBC 2.0)
+  * OCTET_LENGTH (ODBC 3.0)
+  * POSITION IN (ODBC 3.0)
+  * RAND (ODBC 1.0)
+  * TIMESTAMPDIFF (ODBC 2.0)
+  * TRUNCATE (ODBC 2.0)
+  * USER (ODBC 1.0)
+
+Functions in SQLite3 Core:
+--------------------------
+  * ABS
+  * CHAR
+  * IFNULL
+  * LENGTH
+  
