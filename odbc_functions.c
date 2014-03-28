@@ -100,11 +100,6 @@ typedef uint8_t         u8;
 typedef uint16_t        u16;
 typedef int64_t         i64;
 
-static char *sqlite3StrDup( const char *z ) {
-    char *res = sqlite3_malloc( strlen(z)+1 );
-    return strcpy( res, z );
-}
-
 /*
 ** These are copied verbatim from fun.c so as to not have the names exported
 */
@@ -197,28 +192,6 @@ static int sqlite3ReadUtf8(const unsigned char *z){
   zIn += (xtra_utf8_bytes[*(u8 *)zIn] + 1);            \
 }
 
-/*
-** pZ is a UTF-8 encoded unicode string. If nByte is less than zero,
-** return the number of unicode characters in pZ up to (but not including)
-** the first 0x00 byte. If nByte is not less than zero, return the
-** number of unicode characters in the first nByte of pZ (or up to 
-** the first 0x00, whichever comes first).
-*/
-static int sqlite3Utf8CharLen(const char *z, int nByte){
-  int r = 0;
-  const char *zTerm;
-  if( nByte>=0 ){
-    zTerm = &z[nByte];
-  }else{
-    zTerm = (const char *)(-1);
-  }
-  assert( z<=zTerm );
-  while( *z!=0 && z<zTerm ){
-    SKIP_UTF8(z);
-    r++;
-  }
-  return r;
-}
 
 /*
 ** X is a pointer to the first byte of a UTF-8 character.  Increment
@@ -279,36 +252,6 @@ GEN_MATH_WRAP_DOUBLE_1(asinFunc, asin)
 GEN_MATH_WRAP_DOUBLE_1(atanFunc, atan)
 
 /*
-** Many of systems don't have inverse hyperbolic trig functions so this will emulate
-** them on those systems in terms of log and sqrt (formulas are too trivial to demand 
-** written proof here)
-*/
-
-#ifndef HAVE_ACOSH
-static double acosh(double x){
-  return log(x + sqrt(x*x - 1.0));
-}
-#endif
-
-GEN_MATH_WRAP_DOUBLE_1(acoshFunc, acosh)
-
-#ifndef HAVE_ASINH
-static double asinh(double x){
-  return log(x + sqrt(x*x + 1.0));
-}
-#endif
-
-GEN_MATH_WRAP_DOUBLE_1(asinhFunc, asinh)
-
-#ifndef HAVE_ATANH
-static double atanh(double x){
-  return (1.0/2.0)*log((1+x)/(1-x)) ;
-}
-#endif
-
-GEN_MATH_WRAP_DOUBLE_1(atanhFunc, atanh)
-
-/*
 ** math.h doesn't require cot (cotangent) so it's defined here
 */
 static double cot(double x){
@@ -319,40 +262,6 @@ GEN_MATH_WRAP_DOUBLE_1(sinFunc, sin)
 GEN_MATH_WRAP_DOUBLE_1(cosFunc, cos)
 GEN_MATH_WRAP_DOUBLE_1(tanFunc, tan)
 GEN_MATH_WRAP_DOUBLE_1(cotFunc, cot)
-
-static double coth(double x){
-  return 1.0/tanh(x);
-}
-
-/*
-** Many systems don't have hyperbolic trigonometric functions so this will emulate
-** them on those systems directly from the definition in terms of exp
-*/
-#ifndef HAVE_SINH
-static double sinh(double x){
-  return (exp(x)-exp(-x))/2.0;
-}
-#endif
-
-GEN_MATH_WRAP_DOUBLE_1(sinhFunc, sinh)
-
-#ifndef HAVE_COSH
-static double cosh(double x){
-  return (exp(x)+exp(-x))/2.0;
-}
-#endif
-
-GEN_MATH_WRAP_DOUBLE_1(coshFunc, cosh)
-
-#ifndef HAVE_TANH
-static double tanh(double x){
-  return sinh(x)/cosh(x);
-}
-#endif
-
-GEN_MATH_WRAP_DOUBLE_1(tanhFunc, tanh)
-
-GEN_MATH_WRAP_DOUBLE_1(cothFunc, coth)
 
 /*
 ** Some systems lack log in base 10. This will emulate it
@@ -400,33 +309,6 @@ GEN_MATH_WRAP_DOUBLE_1(deg2radFunc, deg2rad)
 /* constant function that returns the value of PI=3.1415... */
 static void piFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
   sqlite3_result_double(context, M_PI);
-}
-
-/*
-** Implements the sqrt function, it has the peculiarity of returning an integer when the
-** the argument is an integer.
-** Since SQLite isn't strongly typed (almost untyped actually) this is a bit pedantic
-*/
-static void squareFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
-  i64 iVal = 0;
-  double rVal = 0.0;
-  assert( argc==1 );
-  switch( sqlite3_value_type(argv[0]) ){
-    case SQLITE_INTEGER: {
-      iVal = sqlite3_value_int64(argv[0]);
-      sqlite3_result_int64(context, iVal*iVal);
-      break;
-    }
-    case SQLITE_NULL: {
-      sqlite3_result_null(context);
-      break;
-    }
-    default: {
-      rVal = sqlite3_value_double(argv[0]);
-      sqlite3_result_double(context, rVal*rVal);
-      break;
-    }
-  }
 }
 
 /*
@@ -552,7 +434,7 @@ static void ceilFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
   assert( argc==1 );
   switch( sqlite3_value_type(argv[0]) ){
     case SQLITE_INTEGER: {
-      i64 iVal = sqlite3_value_int64(argv[0]);
+      iVal = sqlite3_value_int64(argv[0]);
       sqlite3_result_int64(context, iVal);
       break;
     }
@@ -577,7 +459,7 @@ static void floorFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
   assert( argc==1 );
   switch( sqlite3_value_type(argv[0]) ){
     case SQLITE_INTEGER: {
-      i64 iVal = sqlite3_value_int64(argv[0]);
+      iVal = sqlite3_value_int64(argv[0]);
       sqlite3_result_int64(context, iVal);
       break;
     }
@@ -677,46 +559,6 @@ int isblank(char c){
 }
 #endif
 
-static void properFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
-  const unsigned char *z;     /* input string */
-  unsigned char *zo;          /* output string */
-  unsigned char *zt;          /* iterator */
-  char r;
-  int c=1;
-
-  assert( argc==1);
-  if( SQLITE_NULL==sqlite3_value_type(argv[0]) ){
-    sqlite3_result_null(context);
-    return;
-  }
-
-  z = sqlite3_value_text(argv[0]);
-  zo = (unsigned char *)sqlite3StrDup((char *) z);
-  if (!zo) {
-    sqlite3_result_error_nomem(context);
-    return;
-  }
-  zt = zo;
-
-  while( (r = *(z++))!=0 ){
-    if( isblank(r) ){
-      c=1;
-    }else{
-      if( c==1 ){
-        r = toupper(r);
-      }else{
-        r = tolower(r);
-      }
-      c=0;
-    }
-    *(zt++) = r;
-  }
-  *zt = '\0';
-
-  sqlite3_result_text(context, (char*)zo, -1, SQLITE_TRANSIENT);
-  sqlite3_free(zo);
-}
-
 /*
 ** Implementation of the upper() and lower() SQL functions.
 */
@@ -760,225 +602,6 @@ static void lowerFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
   }
 }
 
-/*
-** given an input string (s) and an integer (n) adds spaces at the begining of  s
-** until it has a length of n characters.
-** When s has a length >=n it's a NOP
-** padl(NULL) = NULL
-*/
-static void padlFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
-  i64 ilen;          /* length to pad to */
-  i64 zl;            /* length of the input string (UTF-8 chars) */
-  int i = 0;
-  const char *zi;    /* input string */
-  char *zo;          /* output string */
-  char *zt;
-
-  assert( argc==2 );
-  
-  if( sqlite3_value_type(argv[0]) == SQLITE_NULL ){
-    sqlite3_result_null(context); 
-  }else{
-    zi = (char *)sqlite3_value_text(argv[0]);
-    ilen = sqlite3_value_int64(argv[1]);
-    /* check domain */
-    if(ilen<0){
-      sqlite3_result_error(context, "domain error", -1);
-      return;
-    }
-    zl = sqlite3Utf8CharLen(zi, -1);
-    if( zl>=ilen ){
-      /* string is longer than the requested pad length, return the same string (dup it) */
-      zo = sqlite3StrDup(zi);
-      if (!zo){
-        sqlite3_result_error_nomem(context);
-        return;
-      }
-      sqlite3_result_text(context, zo, -1, SQLITE_TRANSIENT);
-    }else{
-      zo = sqlite3_malloc(strlen(zi)+ilen-zl+1);
-      if (!zo){
-        sqlite3_result_error_nomem(context);
-        return;
-      }
-      zt = zo;
-      for(i=1; i+zl<=ilen; ++i){
-        *(zt++)=' ';
-      }
-      /* no need to take UTF-8 into consideration here */
-      strcpy(zt,zi);
-    }
-    sqlite3_result_text(context, zo, -1, SQLITE_TRANSIENT);
-    sqlite3_free(zo);
-  }
-}
-
-/*
-** given an input string (s) and an integer (n) appends spaces at the end of  s
-** until it has a length of n characters.
-** When s has a length >=n it's a NOP
-** padl(NULL) = NULL
-*/
-static void padrFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
-  i64 ilen;          /* length to pad to */
-  i64 zl;            /* length of the input string (UTF-8 chars) */
-  i64 zll;           /* length of the input string (bytes) */
-  int i = 0;
-  const char *zi;    /* input string */
-  char *zo;          /* output string */
-  char *zt;
-
-  assert( argc==2 );
-  
-  if( sqlite3_value_type(argv[0]) == SQLITE_NULL ){
-    sqlite3_result_null(context); 
-  }else{
-    zi = (char *)sqlite3_value_text(argv[0]);
-    ilen = sqlite3_value_int64(argv[1]);
-    /* check domain */
-    if(ilen<0){
-      sqlite3_result_error(context, "domain error", -1);
-      return;
-    }
-    zl = sqlite3Utf8CharLen(zi, -1);
-    if( zl>=ilen ){
-      /* string is longer than the requested pad length, return the same string (dup it) */
-      zo = sqlite3StrDup(zi);
-      if (!zo){
-        sqlite3_result_error_nomem(context);
-        return;
-      }
-      sqlite3_result_text(context, zo, -1, SQLITE_TRANSIENT);
-    }else{
-      zll = strlen(zi);
-      zo = sqlite3_malloc(zll+ilen-zl+1);
-      if (!zo){
-        sqlite3_result_error_nomem(context);
-        return;
-      }
-      zt = strcpy(zo,zi)+zll;
-      for(i=1; i+zl<=ilen; ++i){
-        *(zt++) = ' ';
-      }
-      *zt = '\0';
-    }
-    sqlite3_result_text(context, zo, -1, SQLITE_TRANSIENT);
-    sqlite3_free(zo);
-  }
-}
-
-/*
-** given an input string (s) and an integer (n) appends spaces at the end of  s
-** and adds spaces at the begining of s until it has a length of n characters.
-** Tries to add has many characters at the left as at the right.
-** When s has a length >=n it's a NOP
-** padl(NULL) = NULL
-*/
-static void padcFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
-  i64 ilen;           /* length to pad to */
-  i64 zl;             /* length of the input string (UTF-8 chars) */
-  i64 zll;            /* length of the input string (bytes) */
-  int i = 0;
-  const char *zi;     /* input string */
-  char *zo;           /* output string */
-  char *zt;
-
-  assert( argc==2 );
-  
-  if( sqlite3_value_type(argv[0]) == SQLITE_NULL ){
-    sqlite3_result_null(context); 
-  }else{
-    zi = (char *)sqlite3_value_text(argv[0]);
-    ilen = sqlite3_value_int64(argv[1]);
-    /* check domain */
-    if(ilen<0){
-      sqlite3_result_error(context, "domain error", -1);
-      return;
-    }
-    zl = sqlite3Utf8CharLen(zi, -1);
-    if( zl>=ilen ){
-      /* string is longer than the requested pad length, return the same string (dup it) */
-      zo = sqlite3StrDup(zi);
-      if (!zo){
-        sqlite3_result_error_nomem(context);
-        return;
-      }
-      sqlite3_result_text(context, zo, -1, SQLITE_TRANSIENT);
-    }else{
-      zll = strlen(zi);
-      zo = sqlite3_malloc(zll+ilen-zl+1);
-      if (!zo){
-        sqlite3_result_error_nomem(context);
-        return;
-      }
-      zt = zo;
-      for(i=1; 2*i+zl<=ilen; ++i){
-        *(zt++) = ' ';
-      }
-      strcpy(zt, zi);
-      zt+=zll;
-      for(; i+zl<=ilen; ++i){
-        *(zt++) = ' ';
-      }
-      *zt = '\0';
-    }
-    sqlite3_result_text(context, zo, -1, SQLITE_TRANSIENT);
-    sqlite3_free(zo);
-  }
-}
-
-/*
-** given 2 string (s1,s2) returns the string s1 with the characters NOT in s2 removed
-** assumes strings are UTF-8 encoded
-*/
-static void strfilterFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
-  const char *zi1;        /* first parameter string (searched string) */
-  const char *zi2;        /* second parameter string (vcontains valid characters) */
-  const char *z1;
-  const char *z21;
-  const char *z22;
-  char *zo;               /* output string */
-  char *zot;
-  int c1 = 0;
-  int c2 = 0;
-
-  assert( argc==2 );
-  
-  if( sqlite3_value_type(argv[0]) == SQLITE_NULL || sqlite3_value_type(argv[1]) == SQLITE_NULL ){
-    sqlite3_result_null(context); 
-  }else{
-    zi1 = (char *)sqlite3_value_text(argv[0]);
-    zi2 = (char *)sqlite3_value_text(argv[1]);
-    /* 
-    ** maybe I could allocate less, but that would imply 2 passes, rather waste 
-    ** (possibly) some memory
-    */
-    zo = sqlite3_malloc(strlen(zi1)+1); 
-    if (!zo){
-      sqlite3_result_error_nomem(context);
-      return;
-    }
-    zot = zo;
-    z1 = zi1;
-    while( (c1=sqliteCharVal((unsigned char *)z1))!=0 ){
-      z21=zi2;
-      while( (c2=sqliteCharVal((unsigned char *)z21))!=0 && c2!=c1 ){
-        sqliteNextChar(z21);
-      }
-      if( c2!=0){
-        z22=z21;
-        sqliteNextChar(z22);
-        strncpy(zot, z21, z22-z21);
-        zot+=z22-z21;
-      }
-      sqliteNextChar(z1);
-    }
-    *zot = '\0';
-
-    sqlite3_result_text(context, zo, -1, SQLITE_TRANSIENT);
-    sqlite3_free(zo);
-  }
-}
 
 /*
 ** Given a string z1, retutns the (0 based) index of it's first occurence
@@ -1181,7 +804,7 @@ static void concatFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
 
     for(i = 0; i < argc; i++)
     {
-        lens[i] = strlen(sqlite3_value_text(argv[i]));
+        lens[i] = strlen((char *)sqlite3_value_text(argv[i]));
         lenall += lens[i];
     }
 
@@ -1463,322 +1086,6 @@ static void replaceFunc(sqlite3_context *context, int argc, sqlite3_value **argv
 }
 #endif
 
-/*
-** given a string returns the same string but with the characters in reverse order
-*/
-static void reverseFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
-  const char *z;
-  const char *zt;
-  char *rz;
-  char *rzt;
-  int l = 0;
-  int i = 0;
-
-  assert( 1==argc );
-
-  if( SQLITE_NULL==sqlite3_value_type(argv[0]) ){
-    sqlite3_result_null(context);
-    return;
-  }
-  z = (char *)sqlite3_value_text(argv[0]);
-  l = strlen(z);
-  rz = sqlite3_malloc(l+1);
-  if (!rz){
-    sqlite3_result_error_nomem(context);
-    return;
-  }
-  rzt = rz+l;
-  *(rzt--) = '\0';
-
-  zt=z;
-  while( sqliteCharVal((unsigned char *)zt)!=0 ){
-    z=zt;
-    sqliteNextChar(zt);
-    for(i=1; zt-i>=z; ++i){
-      *(rzt--)=*(zt-i);
-    }
-  }
-
-  sqlite3_result_text(context, rz, -1, SQLITE_TRANSIENT);
-  sqlite3_free(rz);
-}
-
-/*
-** An instance of the following structure holds the context of a
-** stdev() or variance() aggregate computation.
-** implementaion of http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Algorithm_II
-** less prone to rounding errors
-*/
-typedef struct StdevCtx StdevCtx;
-struct StdevCtx {
-  double rM;
-  double rS;
-  i64 cnt;          /* number of elements */
-};
-
-/*
-** An instance of the following structure holds the context of a
-** mode() or median() aggregate computation.
-** Depends on structures defined in map.c (see map & map)
-** These aggregate functions only work for integers and floats although
-** they could be made to work for strings. This is usually considered meaningless.
-** Only usuall order (for median), no use of collation functions (would this even make sense?)
-*/
-typedef struct ModeCtx ModeCtx;
-struct ModeCtx {
-  i64 riM;            /* integer value found so far */
-  double rdM;         /* double value found so far */
-  i64 cnt;            /* number of elements so far */
-  double pcnt;        /* number of elements smaller than a percentile */
-  i64 mcnt;           /* maximum number of occurrences (for mode) */
-  i64 mn;             /* number of occurrences (for mode and percentiles) */
-  i64 is_double;      /* whether the computation is being done for doubles (>0) or integers (=0) */
-  map* m;             /* map structure used for the computation */
-  int done;           /* whether the answer has been found */
-};
-
-/*
-** called for each value received during a calculation of stdev or variance
-*/
-static void varianceStep(sqlite3_context *context, int argc, sqlite3_value **argv){
-  StdevCtx *p;
-
-  double delta;
-  double x;
-
-  assert( argc==1 );
-  p = sqlite3_aggregate_context(context, sizeof(*p));
-  /* only consider non-null values */
-  if( SQLITE_NULL != sqlite3_value_numeric_type(argv[0]) ){
-    p->cnt++;
-    x = sqlite3_value_double(argv[0]);
-    delta = (x-p->rM);
-    p->rM += delta/p->cnt;
-    p->rS += delta*(x-p->rM);
-  }
-}
-
-/*
-** called for each value received during a calculation of mode of median
-*/
-static void modeStep(sqlite3_context *context, int argc, sqlite3_value **argv){
-  ModeCtx *p;
-  i64 xi=0;
-  double xd=0.0;
-  i64 *iptr;
-  double *dptr;
-  int type;
-
-  assert( argc==1 );
-  type = sqlite3_value_numeric_type(argv[0]);
-
-  if( type == SQLITE_NULL)
-    return;
-  
-  p = sqlite3_aggregate_context(context, sizeof(*p));
-
-  if( 0==(p->m) ){
-    p->m = calloc(1, sizeof(map));
-    if( type==SQLITE_INTEGER ){
-      /* map will be used for integers */
-      *(p->m) = map_make(int_cmp);
-      p->is_double = 0;
-    }else{
-      p->is_double = 1;
-      /* map will be used for doubles */
-      *(p->m) = map_make(double_cmp);
-    }
-  }
-
-  ++(p->cnt);
-
-  if( 0==p->is_double ){
-    xi = sqlite3_value_int64(argv[0]);
-    iptr = (i64*)calloc(1,sizeof(i64));
-    *iptr = xi;
-    map_insert(p->m, iptr);
-  }else{
-    xd = sqlite3_value_double(argv[0]);
-    dptr = (double*)calloc(1,sizeof(double));
-    *dptr = xd;
-    map_insert(p->m, dptr);
-  }
-}
-
-/*
-**  Auxiliary function that iterates all elements in a map and finds the mode
-**  (most frequent value)
-*/
-static void modeIterate(void* e, i64 c, void* pp){
-  i64 ei;
-  double ed;
-  ModeCtx *p = (ModeCtx*)pp;
-  
-  if( 0==p->is_double ){
-    ei = *(int*)(e);
-
-	if( p->mcnt==c ){
-      ++p->mn;
-    }else if( p->mcnt<c ){
-      p->riM = ei;
-      p->mcnt = c;
-	  p->mn=1;
-    }
-  }else{
-    ed = *(double*)(e);
-
-	if( p->mcnt==c ){
-      ++p->mn;
-    }else if(p->mcnt<c){
-      p->rdM = ed;
-      p->mcnt = c;
-	  p->mn=1;
-    }
-  }
-}
-
-/*
-**  Auxiliary function that iterates all elements in a map and finds the median
-**  (the value such that the number of elements smaller is equal the the number of 
-**  elements larger)
-*/
-static void medianIterate(void* e, i64 c, void* pp){
-  i64 ei;
-  double ed;
-  double iL;
-  double iR;
-  int il;
-  int ir;
-  ModeCtx *p = (ModeCtx*)pp;
-
-  if(p->done>0)
-    return;
-
-  iL = p->pcnt;
-  iR = p->cnt - p->pcnt;
-  il = p->mcnt + c;
-  ir = p->cnt - p->mcnt;
-
-  if( il >= iL ){
-    if( ir >= iR ){
-    ++p->mn;
-      if( 0==p->is_double ){
-        ei = *(int*)(e);
-        p->riM += ei;
-      }else{
-        ed = *(double*)(e);
-        p->rdM += ed;
-      }
-    }else{
-      p->done=1;
-    }
-  }
-  p->mcnt+=c;
-}
-
-/*
-** Returns the mode value
-*/
-static void modeFinalize(sqlite3_context *context){
-  ModeCtx *p;
-  p = sqlite3_aggregate_context(context, 0);
-  if( p && p->m ){
-    map_iterate(p->m, modeIterate, p);
-    map_destroy(p->m);
-    free(p->m);
-
-    if( 1==p->mn ){
-      if( 0==p->is_double )
-        sqlite3_result_int64(context, p->riM);
-      else
-        sqlite3_result_double(context, p->rdM);
-    }
-  }
-}
-
-/*
-** auxiliary function for percentiles
-*/
-static void _medianFinalize(sqlite3_context *context){
-  ModeCtx *p;
-  p = (ModeCtx*) sqlite3_aggregate_context(context, 0);
-  if( p && p->m ){
-    p->done=0;
-    map_iterate(p->m, medianIterate, p);
-    map_destroy(p->m);
-    free(p->m);
-
-    if( 0==p->is_double )
-      if( 1==p->mn )
-      	sqlite3_result_int64(context, p->riM);
-      else
-      	sqlite3_result_double(context, p->riM*1.0/p->mn);
-    else
-      sqlite3_result_double(context, p->rdM/p->mn);
-  }
-}
-
-/*
-** Returns the median value
-*/
-static void medianFinalize(sqlite3_context *context){
-  ModeCtx *p;
-  p = (ModeCtx*) sqlite3_aggregate_context(context, 0);
-  if( p!=0 ){
-    p->pcnt = (p->cnt)/2.0;
-    _medianFinalize(context);
-  }
-}
-
-/*
-** Returns the lower_quartile value
-*/
-static void lower_quartileFinalize(sqlite3_context *context){
-  ModeCtx *p;
-  p = (ModeCtx*) sqlite3_aggregate_context(context, 0);
-  if( p!=0 ){
-    p->pcnt = (p->cnt)/4.0;
-    _medianFinalize(context);
-  }
-}
-
-/*
-** Returns the upper_quartile value
-*/
-static void upper_quartileFinalize(sqlite3_context *context){
-  ModeCtx *p;
-  p = (ModeCtx*) sqlite3_aggregate_context(context, 0);
-  if( p!=0 ){
-    p->pcnt = (p->cnt)*3/4.0;
-    _medianFinalize(context);
-  }
-}
-
-/*
-** Returns the stdev value
-*/
-static void stdevFinalize(sqlite3_context *context){
-  StdevCtx *p;
-  p = sqlite3_aggregate_context(context, 0);
-  if( p && p->cnt>1 ){
-    sqlite3_result_double(context, sqrt(p->rS/(p->cnt-1)));
-  }else{
-    sqlite3_result_double(context, 0.0);
-  }
-}
-
-/*
-** Returns the variance value
-*/
-static void varianceFinalize(sqlite3_context *context){
-  StdevCtx *p;
-  p = sqlite3_aggregate_context(context, 0);
-  if( p && p->cnt>1 ){
-    sqlite3_result_double(context, p->rS/(p->cnt-1));
-  }else{
-    sqlite3_result_double(context, 0.0);
-  }
-}
 
 #ifdef SQLITE_SOUNDEX
 
@@ -1854,6 +1161,638 @@ static void differenceFunc(sqlite3_context *context, int argc, sqlite3_value **a
 }
 #endif
 
+#ifndef SQLITE_OMIT_DATETIME_FUNCS
+#include <time.h>
+
+/* Date functions pinched from the core sqlite3 code */
+
+
+/*
+** A structure for holding a single date and time.
+*/
+typedef struct DateTime DateTime;
+struct DateTime {
+  sqlite3_int64 iJD; /* The julian day number times 86400000 */
+  int Y, M, D;       /* Year, month, and day */
+  int h, m;          /* Hour and minutes */
+  int tz;            /* Timezone offset in minutes */
+  double s;          /* Seconds */
+  char validYMD;     /* True (1) if Y,M,D are valid */
+  char validHMS;     /* True (1) if h,m,s are valid */
+  char validJD;      /* True (1) if iJD is valid */
+  char validTZ;      /* True (1) if tz is valid */
+};
+
+
+/*
+** Convert zDate into one or more integers.  Additional arguments
+** come in groups of 5 as follows:
+**
+**       N       number of digits in the integer
+**       min     minimum allowed value of the integer
+**       max     maximum allowed value of the integer
+**       nextC   first character after the integer
+**       pVal    where to write the integers value.
+**
+** Conversions continue until one with nextC==0 is encountered.
+** The function returns the number of successful conversions.
+*/
+static int getDigits(const char *zDate, ...){
+  va_list ap;
+  int val;
+  int N;
+  int min;
+  int max;
+  int nextC;
+  int *pVal;
+  int cnt = 0;
+  va_start(ap, zDate);
+  do{
+    N = va_arg(ap, int);
+    min = va_arg(ap, int);
+    max = va_arg(ap, int);
+    nextC = va_arg(ap, int);
+    pVal = va_arg(ap, int*);
+    val = 0;
+    while( N-- ){
+      if( !isdigit(*zDate) ){
+        goto end_getDigits;
+      }
+      val = val*10 + *zDate - '0';
+      zDate++;
+    }
+    if( val<min || val>max || (nextC!=0 && nextC!=*zDate) ){
+      goto end_getDigits;
+    }
+    *pVal = val;
+    zDate++;
+    cnt++;
+  }while( nextC );
+end_getDigits:
+  va_end(ap);
+  return cnt;
+}
+
+/*
+** Parse a timezone extension on the end of a date-time.
+** The extension is of the form:
+**
+**        (+/-)HH:MM
+**
+** Or the "zulu" notation:
+**
+**        Z
+**
+** If the parse is successful, write the number of minutes
+** of change in p->tz and return 0.  If a parser error occurs,
+** return non-zero.
+**
+** A missing specifier is not considered an error.
+*/
+static int parseTimezone(const char *zDate, DateTime *p){
+  int sgn = 0;
+  int nHr, nMn;
+  int c;
+  while( isspace(*zDate) ){ zDate++; }
+  p->tz = 0;
+  c = *zDate;
+  if( c=='-' ){
+    sgn = -1;
+  }else if( c=='+' ){
+    sgn = +1;
+  }else if( c=='Z' || c=='z' ){
+    zDate++;
+    goto zulu_time;
+  }else{
+    return c!=0;
+  }
+  zDate++;
+  if( getDigits(zDate, 2, 0, 14, ':', &nHr, 2, 0, 59, 0, &nMn)!=2 ){
+    return 1;
+  }
+  zDate += 5;
+  p->tz = sgn*(nMn + nHr*60);
+zulu_time:
+  while( isspace(*zDate) ){ zDate++; }
+  return *zDate!=0;
+}
+
+/*
+** Parse times of the form HH:MM or HH:MM:SS or HH:MM:SS.FFFF.
+** The HH, MM, and SS must each be exactly 2 digits.  The
+** fractional seconds FFFF can be one or more digits.
+**
+** Return 1 if there is a parsing error and 0 on success.
+*/
+static int parseHhMmSs(const char *zDate, DateTime *p){
+  int h, m, s;
+  double ms = 0.0;
+  if( getDigits(zDate, 2, 0, 24, ':', &h, 2, 0, 59, 0, &m)!=2 ){
+    return 1;
+  }
+  zDate += 5;
+  if( *zDate==':' ){
+    zDate++;
+    if( getDigits(zDate, 2, 0, 59, 0, &s)!=1 ){
+      return 1;
+    }
+    zDate += 2;
+    if( *zDate=='.' && isdigit(zDate[1]) ){
+      double rScale = 1.0;
+      zDate++;
+      while( isdigit(*zDate) ){
+        ms = ms*10.0 + *zDate - '0';
+        rScale *= 10.0;
+        zDate++;
+      }
+      ms /= rScale;
+    }
+  }else{
+    s = 0;
+  }
+  p->validJD = 0;
+  p->validHMS = 1;
+  p->h = h;
+  p->m = m;
+  p->s = s + ms;
+  if( parseTimezone(zDate, p) ) return 1;
+  p->validTZ = (p->tz!=0)?1:0;
+  return 0;
+}
+
+/*
+** Convert from YYYY-MM-DD HH:MM:SS to julian day.  We always assume
+** that the YYYY-MM-DD is according to the Gregorian calendar.
+**
+** Reference:  Meeus page 61
+*/
+static void computeJD(DateTime *p){
+  int Y, M, D, A, B, X1, X2;
+
+  if( p->validJD ) return;
+  if( p->validYMD ){
+    Y = p->Y;
+    M = p->M;
+    D = p->D;
+  }else{
+    Y = 2000;  /* If no YMD specified, assume 2000-Jan-01 */
+    M = 1;
+    D = 1;
+  }
+  if( M<=2 ){
+    Y--;
+    M += 12;
+  }
+  A = Y/100;
+  B = 2 - A + (A/4);
+  X1 = 36525*(Y+4716)/100;
+  X2 = 306001*(M+1)/10000;
+  p->iJD = (sqlite3_int64)((X1 + X2 + D + B - 1524.5 ) * 86400000);
+  p->validJD = 1;
+  if( p->validHMS ){
+    p->iJD += p->h*3600000 + p->m*60000 + (sqlite3_int64)(p->s*1000);
+    if( p->validTZ ){
+      p->iJD -= p->tz*60000;
+      p->validYMD = 0;
+      p->validHMS = 0;
+      p->validTZ = 0;
+    }
+  }
+}
+
+/*
+** Parse dates of the form
+**
+**     YYYY-MM-DD HH:MM:SS.FFF
+**     YYYY-MM-DD HH:MM:SS
+**     YYYY-MM-DD HH:MM
+**     YYYY-MM-DD
+**
+** Write the result into the DateTime structure and return 0
+** on success and 1 if the input string is not a well-formed
+** date.
+*/
+static int parseYyyyMmDd(const char *zDate, DateTime *p){
+  int Y, M, D, neg;
+
+  if( zDate[0]=='-' ){
+    zDate++;
+    neg = 1;
+  }else{
+    neg = 0;
+  }
+  if( getDigits(zDate,4,0,9999,'-',&Y,2,1,12,'-',&M,2,1,31,0,&D)!=3 ){
+    return 1;
+  }
+  zDate += 10;
+  while( isspace(*zDate) || 'T'==*(u8*)zDate ){ zDate++; }
+  if( parseHhMmSs(zDate, p)==0 ){
+    /* We got the time */
+  }else if( *zDate==0 ){
+    p->validHMS = 0;
+  }else{
+    return 1;
+  }
+  p->validJD = 0;
+  p->validYMD = 1;
+  p->Y = neg ? -Y : Y;
+  p->M = M;
+  p->D = D;
+  if( p->validTZ ){
+    computeJD(p);
+  }
+  return 0;
+}
+
+static int sqlite3OsCurrentTimeInt64(sqlite3_vfs *pVfs, sqlite3_int64 *pTimeOut){
+  int rc;
+  /* IMPLEMENTATION-OF: R-49045-42493 SQLite will use the xCurrentTimeInt64()
+  ** method to get the current date and time if that method is available
+  ** (if iVersion is 2 or greater and the function pointer is not NULL) and
+  ** will fall back to xCurrentTime() if xCurrentTimeInt64() is
+  ** unavailable.
+  */
+  if( pVfs->iVersion>=2 && pVfs->xCurrentTimeInt64 ){
+    rc = pVfs->xCurrentTimeInt64(pVfs, pTimeOut);
+  }else{
+    double r;
+    rc = pVfs->xCurrentTime(pVfs, &r);
+    *pTimeOut = (sqlite3_int64)(r*86400000.0);
+  }
+  return rc;
+}
+
+/*
+** Set the time to the current time reported by the VFS.
+**
+** Return the number of errors.
+*/
+static int setDateTimeToCurrent(sqlite3_context *context, DateTime *p){
+  if( sqlite3OsCurrentTimeInt64(sqlite3_vfs_find(NULL), &p->iJD)==SQLITE_OK ){
+    p->validJD = 1;
+    return 0;
+  }else{
+    return 1;
+  }
+}
+
+/*
+** Attempt to parse the given string into a Julian Day Number.  Return
+** the number of errors.
+**
+** The following are acceptable forms for the input string:
+**
+**      YYYY-MM-DD HH:MM:SS.FFF  +/-HH:MM
+**      DDDD.DD 
+**      now
+**
+** In the first form, the +/-HH:MM is always optional.  The fractional
+** seconds extension (the ".FFF") is optional.  The seconds portion
+** (":SS.FFF") is option.  The year and date can be omitted as long
+** as there is a time string.  The time string can be omitted as long
+** as there is a year and date.
+*/
+static int parseDateOrTime(
+  sqlite3_context *context, 
+  const char *zDate, 
+  DateTime *p
+){
+  if( parseYyyyMmDd(zDate,p)==0 ){
+    return 0;
+  }else if( parseHhMmSs(zDate, p)==0 ){
+    return 0;
+  }else if( sqlite3_stricmp(zDate,"now")==0){
+    return setDateTimeToCurrent(context, p);
+  }
+  return 1;
+}
+
+/*
+** Compute the Year, Month, and Day from the julian day number.
+*/
+static void computeYMD(DateTime *p){
+  int Z, A, B, C, D, E, X1;
+  if( p->validYMD ) return;
+  if( !p->validJD ){
+    p->Y = 2000;
+    p->M = 1;
+    p->D = 1;
+  }else{
+    Z = (int)((p->iJD + 43200000)/86400000);
+    A = (int)((Z - 1867216.25)/36524.25);
+    A = Z + 1 + A - (A/4);
+    B = A + 1524;
+    C = (int)((B - 122.1)/365.25);
+    D = (36525*C)/100;
+    E = (int)((B-D)/30.6001);
+    X1 = (int)(30.6001*E);
+    p->D = B - D - X1;
+    p->M = E<14 ? E-1 : E-13;
+    p->Y = p->M>2 ? C - 4716 : C - 4715;
+  }
+  p->validYMD = 1;
+}
+
+/*
+** Compute the Hour, Minute, and Seconds from the julian day number.
+*/
+static void computeHMS(DateTime *p){
+  int s;
+  if( p->validHMS ) return;
+  computeJD(p);
+  s = (int)((p->iJD + 43200000) % 86400000);
+  p->s = s/1000.0;
+  s = (int)p->s;
+  p->s -= s;
+  p->h = s/3600;
+  s -= p->h*3600;
+  p->m = s/60;
+  p->s += s - p->m*60;
+  p->validHMS = 1;
+}
+
+/*
+** Compute both YMD and HMS
+*/
+static void computeYMD_HMS(DateTime *p){
+  computeYMD(p);
+  computeHMS(p);
+}
+
+/*
+** current_time()
+**
+** This function returns the same value as time('now').
+*/
+static void ctimeFunc(
+  sqlite3_context *context,
+  int NotUsed,
+  sqlite3_value **NotUsed2
+){
+  DateTime x;
+  memset(&x, 0, sizeof(x));
+  
+  if( setDateTimeToCurrent(context, &x)==0){
+    char zBuf[100];
+    computeHMS(&x);
+    sqlite3_snprintf(sizeof(zBuf), zBuf, "%02d:%02d:%02d", x.h, x.m, (int)x.s);
+    sqlite3_result_text(context, zBuf, -1, SQLITE_TRANSIENT);
+  }
+}
+
+/*
+** current_date()
+**
+** This function returns the same value as date('now').
+*/
+static void cdateFunc(
+  sqlite3_context *context,
+  int NotUsed,
+  sqlite3_value **NotUsed2
+){
+  DateTime x;
+  memset(&x, 0, sizeof(x));
+  
+  if( setDateTimeToCurrent(context, &x)==0){
+    char zBuf[100];
+    computeYMD(&x);
+    sqlite3_snprintf(sizeof(zBuf), zBuf, "%04d-%02d-%02d", x.Y, x.M, x.D);
+    sqlite3_result_text(context, zBuf, -1, SQLITE_TRANSIENT);
+  }
+}
+
+/*
+** current_timestamp()
+**
+** This function returns the same value as datetime('now').
+*/
+static void ctimestampFunc(
+  sqlite3_context *context,
+  int NotUsed,
+  sqlite3_value **NotUsed2
+){
+  DateTime x;
+  memset(&x, 0, sizeof(x));
+  
+  if( setDateTimeToCurrent(context, &x)==0){
+    char zBuf[100];
+    computeYMD_HMS(&x);
+    sqlite3_snprintf(sizeof(zBuf), zBuf, "%04d-%02d-%02d %02d:%02d:%02d",
+                     x.Y, x.M, x.D, x.h, x.m, (int)(x.s));
+    sqlite3_result_text(context, zBuf, -1, SQLITE_TRANSIENT);
+  }
+}
+
+static void
+dayofmonthFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p;
+  const unsigned char *z;
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeYMD_HMS(&p);
+  
+  sqlite3_result_int64(context, p.D);
+}
+
+static void
+dayofweekFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p;
+  const unsigned char *z;
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeJD(&p);
+  
+  sqlite3_result_int64(context, (((p.iJD+129600000)/86400000) % 7));
+}
+
+static void
+dayofyearFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p, y;
+  int nDay;
+  const unsigned char *z;
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeJD(&p);
+  
+  y = p;
+  y.validJD = 0;
+  y.M = 1;
+  y.D = 1;
+  computeJD(&y);
+  nDay = (int)((p.iJD-y.iJD+43200000)/86400000);
+  
+  sqlite3_result_int64(context, nDay);
+}
+
+static void
+hourFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p;
+  const unsigned char *z;
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeYMD_HMS(&p);
+  
+  sqlite3_result_int64(context, p.h);
+}
+
+static void
+minuteFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p;
+  const unsigned char *z;
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeYMD_HMS(&p);
+  
+  sqlite3_result_int64(context, p.m);
+}
+
+static void
+monthFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p;
+  const unsigned char *z;
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeYMD_HMS(&p);
+  
+  sqlite3_result_int64(context, p.M);
+}
+
+static void
+quarterFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p;
+  const unsigned char *z;
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeYMD_HMS(&p);
+  
+  sqlite3_result_int64(context, p.M / 3);
+}
+
+static void
+secondFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p;
+  const unsigned char *z;
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeYMD_HMS(&p);
+  
+  sqlite3_result_int64(context, p.s);
+}
+
+static void
+weekFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p, y;
+  int nDay;
+  int wd;   /* 0=Monday, 1=Tuesday, ... 6=Sunday */
+  const unsigned char *z;
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeJD(&p);
+  
+  y = p;
+  y.validJD = 0;
+  y.M = 1;
+  y.D = 1;
+  computeJD(&y);
+  nDay = (int)((p.iJD-y.iJD+43200000)/86400000);
+  wd = (int)(((p.iJD+43200000)/86400000)%7);
+  
+  sqlite3_result_int64(context, (nDay+7-wd)/7);
+}
+
+static void
+yearFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p;
+  const unsigned char *z;
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeYMD_HMS(&p);
+  
+  sqlite3_result_int64(context, p.Y);
+}
+
+#endif
+
 /*
 ** This function registered all of the above C functions as SQL
 ** functions.  This should be the only routine in this file with
@@ -1872,12 +1811,7 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "acos",               1, 0, SQLITE_UTF8,    0, acosFunc  },
     { "asin",               1, 0, SQLITE_UTF8,    0, asinFunc  },
     { "atan",               1, 0, SQLITE_UTF8,    0, atanFunc  },
-    //{ "atn2",               2, 0, SQLITE_UTF8,    0, atn2Func  },
-    /* XXX alias */
     { "atan2",              2, 0, SQLITE_UTF8,    0, atn2Func  },
-    //{ "acosh",              1, 0, SQLITE_UTF8,    0, acoshFunc  },
-    //{ "asinh",              1, 0, SQLITE_UTF8,    0, asinhFunc  },
-    //{ "atanh",              1, 0, SQLITE_UTF8,    0, atanhFunc  },
 
     { "difference",         2, 0, SQLITE_UTF8,    0, differenceFunc},
     { "degrees",            1, 0, SQLITE_UTF8,    0, rad2degFunc  },
@@ -1887,10 +1821,6 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "sin",                1, 0, SQLITE_UTF8,    0, sinFunc },
     { "tan",                1, 0, SQLITE_UTF8,    0, tanFunc },
     { "cot",                1, 0, SQLITE_UTF8,    0, cotFunc },
-    //{ "cosh",               1, 0, SQLITE_UTF8,    0, coshFunc  },
-    //{ "sinh",               1, 0, SQLITE_UTF8,    0, sinhFunc },
-    //{ "tanh",               1, 0, SQLITE_UTF8,    0, tanhFunc },
-    //{ "coth",               1, 0, SQLITE_UTF8,    0, cothFunc },
 
     { "exp",                1, 0, SQLITE_UTF8,    0, expFunc  },
     { "log",                1, 0, SQLITE_UTF8,    0, logFunc  },
@@ -1899,9 +1829,7 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "mod",                2, 0, SQLITE_UTF8,    0, modFunc  },
     { "sign",               1, 0, SQLITE_UTF8,    0, signFunc },
     { "sqrt",               1, 0, SQLITE_UTF8,    0, sqrtFunc },
-    //{ "square",             1, 0, SQLITE_UTF8,    0, squareFunc },
 
-    //{ "ceil",            1, 0, SQLITE_UTF8,    0, ceilFunc },
     { "ceiling",            1, 0, SQLITE_UTF8,    0, ceilFunc },
     { "floor",              1, 0, SQLITE_UTF8,    0, floorFunc },
 
@@ -1912,12 +1840,8 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "ascii",              1, 0, SQLITE_UTF8,    0, asciiFunc },
     { "repeat",             2, 0, SQLITE_UTF8,    0, replicateFunc },
     { "space",              1, 0, SQLITE_UTF8,    0, spaceFunc },
-    //{ "charindex",          2, 0, SQLITE_UTF8,    0, charindexFunc },
-    //{ "charindex",          3, 0, SQLITE_UTF8,    0, charindexFunc },
     { "locate",             2, 0, SQLITE_UTF8,    0, charindexFunc },
     { "locate",             3, 0, SQLITE_UTF8,    0, charindexFunc },
-    //{ "leftstr",            2, 0, SQLITE_UTF8,    0, leftFunc },
-    //{ "rightstr",           2, 0, SQLITE_UTF8,    0, rightFunc },
     { "substring",          2, 0, SQLITE_UTF8,    0, substrFunc },
     { "substring",          3, 0, SQLITE_UTF8,    0, substrFunc },
 	
@@ -1931,14 +1855,28 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "trim",               1, 0, SQLITE_UTF8,    0, trimFunc },
     { "replace",            3, 0, SQLITE_UTF8,    0, replaceFunc },
 #endif
-    //{ "reverse",            1, 0, SQLITE_UTF8,    0, reverseFunc },
-    //{ "proper",             1, 0, SQLITE_UTF8,    0, properFunc },
     { "ucase",              1, 0, SQLITE_UTF8,    0, upperFunc },
     { "lcase",              1, 0, SQLITE_UTF8,    0, lowerFunc },
-    //{ "padl",               2, 0, SQLITE_UTF8,    0, padlFunc },
-    //{ "padr",               2, 0, SQLITE_UTF8,    0, padrFunc },
-    //{ "padc",               2, 0, SQLITE_UTF8,    0, padcFunc },
-    //{ "strfilter",          2, 0, SQLITE_UTF8,    0, strfilterFunc },
+    
+    
+#ifndef SQLITE_OMIT_DATETIME_FUNCS
+	/* date */
+    { "curdate",            0, 0, SQLITE_UTF8,    0, cdateFunc },
+    { "curtime",            0, 0, SQLITE_UTF8,    0, ctimeFunc },
+    { "now",                0, 0, SQLITE_UTF8,    0, ctimestampFunc },
+	
+    { "dayofmonth",         1, 0, SQLITE_UTF8,    0, dayofmonthFunc },
+    { "dayofweek",          1, 0, SQLITE_UTF8,    0, dayofweekFunc },
+    { "dayofyear",          1, 0, SQLITE_UTF8,    0, dayofyearFunc },
+    { "hour",               1, 0, SQLITE_UTF8,    0, hourFunc },
+    { "minute",             1, 0, SQLITE_UTF8,    0, minuteFunc },
+    { "month",              1, 0, SQLITE_UTF8,    0, monthFunc },
+    { "quarter",            1, 0, SQLITE_UTF8,    0, quarterFunc },
+    { "second",             1, 0, SQLITE_UTF8,    0, secondFunc },
+    { "week",               1, 0, SQLITE_UTF8,    0, weekFunc },
+    { "year",               1, 0, SQLITE_UTF8,    0, yearFunc },
+	
+#endif
 
   };
   /* Aggregate functions */
@@ -2107,10 +2045,5 @@ int double_cmp(const void *a, const void *b){
     return -1;
   else
     return 1;
-}
-
-void print_elem(void *e, int64_t c, void* p){
-  int ee = *(int*)(e);
-  printf("%d => %lld\n", ee,c);
 }
 
