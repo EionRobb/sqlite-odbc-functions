@@ -13,11 +13,16 @@ Supported ODBC functions:
 String Functions:
 -----------------
   * ASCII
+  * BIT_LENGTH
+  * CHAR_LENGTH
+  * CHARACTER_LENGTH
   * CONCAT
+  * INSERT
   * LCASE
   * LEFT
   * LOCATE
   * LTRIM
+  * OCTET_LENGTH
   * REPEAT
   * REPLACE
   * RIGHT
@@ -46,53 +51,52 @@ Numeric Functions:
   * PI
   * POWER
   * RADIANS
+  * RAND
   * ROUND
   * SIGN
   * SIN
   * SQRT
   * TAN
+  * TRUNCATE
 
 Date and Time Functions:
 ------------------------
   * CURDATE
+  * CURRENT_DATE
+  * CURRENT_TIME
+  * CURRENT_TIMESTAMP
   * CURTIME
+  * DAYNAME
   * DAYOFMONTH
   * DAYOFWEEK
   * DAYOFYEAR
   * HOUR
   * MINUTE
   * MONTH
+  * MONTHNAME
   * NOW
   * QUARTER
   * SECOND
   * WEEK
   * YEAR
+ 
+System Functions:
+=================
+  * DATABASE
+  * USER
 
-Missing Functions:
-==================
-  * BIT_LENGTH (ODBC 3.0)
-  * CHAR_LENGTH (ODBC 3.0)
-  * CHARACTER_LENGTH (ODBC 3.0)
-  * CONVERT
-  * CURRENT_DATE (ODBC 3.0)
-  * CURRENT_TIME (ODBC 3.0)
-  * CURRENT_TIMESTAMP (ODBC 3.0)
-  * DATABASE (ODBC 1.0)
-  * DAYNAME (ODBC 2.0)
-  * EXTRACT (ODBC 3.0)
-  * INSERT (ODBC 1.0)
-  * MONTHNAME (ODBC 2.0)
-  * OCTET_LENGTH (ODBC 3.0)
-  * POSITION IN (ODBC 3.0)
-  * RAND (ODBC 1.0)
-  * TIMESTAMPDIFF (ODBC 2.0)
-  * TRUNCATE (ODBC 2.0)
-  * USER (ODBC 1.0)
-
-Functions in SQLite3 Core:
---------------------------
+Functions already in SQLite3 Core:
+----------------------------------
   * ABS
   * CHAR
   * IFNULL
   * LENGTH
-  
+
+Missing Functions:
+==================
+  * CONVERT
+  * EXTRACT
+  * POSITION
+  * TIMESTAMPDIFF
+
+Some of the above function names are also SQLite keywords, so should either be called with the {fn ...} ODBC function wrapper, or by quoting the function name, eg "INSERT"(...)
