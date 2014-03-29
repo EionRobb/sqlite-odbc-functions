@@ -616,6 +616,78 @@ void insertFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
   sqlite3_result_text(context, out, n - len + n2, sqlite3_free);
 }
 
+/*
+** Implementation of the bit_length() function
+*/
+static void bitlengthFunc(
+  sqlite3_context *context,
+  int argc,
+  sqlite3_value **argv
+){
+  int len;
+
+  assert( argc==1 );
+  switch( sqlite3_value_type(argv[0]) ){
+    case SQLITE_BLOB:
+    case SQLITE_INTEGER:
+    case SQLITE_FLOAT: {
+      sqlite3_result_int(context, sqlite3_value_bytes(argv[0]) * 8);
+      break;
+    }
+    case SQLITE_TEXT: {
+      const unsigned char *z = sqlite3_value_text(argv[0]);
+      if( z==0 ) return;
+      len = 0;
+      while( *z ){
+        len++;
+        SKIP_UTF8(z);
+      }
+      sqlite3_result_int(context, len * 8);
+      break;
+    }
+    default: {
+      sqlite3_result_null(context);
+      break;
+    }
+  }
+}
+
+/*
+** Implementation of the bit_length() function
+*/
+static void lengthFunc(
+  sqlite3_context *context,
+  int argc,
+  sqlite3_value **argv
+){
+  int len;
+
+  assert( argc==1 );
+  switch( sqlite3_value_type(argv[0]) ){
+    case SQLITE_BLOB:
+    case SQLITE_INTEGER:
+    case SQLITE_FLOAT: {
+      sqlite3_result_int(context, sqlite3_value_bytes(argv[0]));
+      break;
+    }
+    case SQLITE_TEXT: {
+      const unsigned char *z = sqlite3_value_text(argv[0]);
+      if( z==0 ) return;
+      len = 0;
+      while( *z ){
+        len++;
+        SKIP_UTF8(z);
+      }
+      sqlite3_result_int(context, len);
+      break;
+    }
+    default: {
+      sqlite3_result_null(context);
+      break;
+    }
+  }
+}
+
 
 /* 
 ** Some systems (win32 among others) don't have an isblank function, this will emulate it.
@@ -1896,6 +1968,60 @@ monthFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
 }
 
 static void
+monthNameFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p;
+  const unsigned char *z;
+  time_t t;
+  struct tm *tm;
+  size_t s;
+  char name[50];
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeJD(&p);
+  t = (time_t)(p.iJD/1000 - 21086676*(i64)10000);
+  tm = gmtime(&t);
+  
+  s = strftime(name, 50, "%B", tm);
+  
+  sqlite3_result_text(context, name, s, SQLITE_TRANSIENT);
+}
+
+static void
+dayNameFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+  DateTime p;
+  const unsigned char *z;
+  time_t t;
+  struct tm *tm;
+  size_t s;
+  char name[50];
+  
+  memset(&p, 0, sizeof(p));
+  
+  z = sqlite3_value_text(argv[0]);
+  if( !z || parseDateOrTime(context, (char*)z, &p) ){
+    sqlite3_result_error(context, "date/time parsing error", -1);
+	return;
+  }
+  
+  computeJD(&p);
+  t = (time_t)(p.iJD/1000 - 21086676*(i64)10000);
+  tm = gmtime(&t);
+  
+  s = strftime(name, 50, "%A", tm);
+  
+  sqlite3_result_text(context, name, s, SQLITE_TRANSIENT);
+}
+
+static void
 quarterFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
 {
   DateTime p;
@@ -2082,6 +2208,11 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "concat",            -1, 0, SQLITE_UTF8,    0, concatFunc },
 	{ "insert",             4, 0, SQLITE_UTF8,    0, insertFunc },
 	
+	{ "bit_length",         1, 0, SQLITE_UTF8,    0, bitlengthFunc },
+	{ "char_length",        1, 0, SQLITE_UTF8,    0, lengthFunc },
+	{ "character_length",   1, 0, SQLITE_UTF8,    0, lengthFunc },
+	{ "octet_length",       1, 0, SQLITE_UTF8,    0, lengthFunc },
+	
 #ifndef HAVE_TRIM
     { "ltrim",              1, 0, SQLITE_UTF8,    0, ltrimFunc },
     { "rtrim",              1, 0, SQLITE_UTF8,    0, rtrimFunc },
@@ -2095,8 +2226,13 @@ int RegisterExtensionFunctions(sqlite3 *db){
 #ifndef SQLITE_OMIT_DATETIME_FUNCS
 	/* date */
     { "curdate",            0, 0, SQLITE_UTF8,    0, cdateFunc },
+    { "current_date",       0, 0, SQLITE_UTF8,    0, cdateFunc },
     { "curtime",            0, 0, SQLITE_UTF8,    0, ctimeFunc },
+    { "current_time",       0, 0, SQLITE_UTF8,    0, ctimeFunc },
+    { "current_time",       1, 0, SQLITE_UTF8,    0, ctimeFunc },
     { "now",                0, 0, SQLITE_UTF8,    0, ctimestampFunc },
+    { "current_timestamp",  0, 0, SQLITE_UTF8,    0, ctimestampFunc },
+    { "current_timestamp",  1, 0, SQLITE_UTF8,    0, ctimestampFunc },
 	
     { "dayofmonth",         1, 0, SQLITE_UTF8,    0, dayofmonthFunc },
     { "dayofweek",          1, 0, SQLITE_UTF8,    0, dayofweekFunc },
@@ -2108,6 +2244,8 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "second",             1, 0, SQLITE_UTF8,    0, secondFunc },
     { "week",               1, 0, SQLITE_UTF8,    0, weekFunc },
     { "year",               1, 0, SQLITE_UTF8,    0, yearFunc },
+	{ "monthname",          1, 0, SQLITE_UTF8,    0, monthNameFunc },
+	{ "dayname",            1, 0, SQLITE_UTF8,    0, dayNameFunc },
 	
 #endif
     
