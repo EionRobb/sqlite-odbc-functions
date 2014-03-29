@@ -36,6 +36,8 @@ SQLITE_EXTENSION_INIT1
 #include <stdlib.h>
 #include <assert.h>
 
+#define LARGEST_INT64  (0xffffffff|(((i64)0x7fffffff)<<32))
+
 #ifndef _MAP_H_
 #define _MAP_H_
 
@@ -474,6 +476,42 @@ static void floorFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
     }
   }
 }
+/*
+** Implementation of the truncate() function, similar to round()
+*/
+#ifndef SQLITE_OMIT_FLOATING_POINT
+static void truncateFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
+  int n = 0, p;
+  double r;
+  assert( argc==2 );
+  
+  if( SQLITE_NULL==sqlite3_value_type(argv[1]) ) return;
+  n = sqlite3_value_int(argv[1]);
+  if( n>30 ) n = 30;
+  if( n<-30 ) n = -30;
+  
+  if( sqlite3_value_type(argv[0])==SQLITE_NULL ) return;
+  r = sqlite3_value_double(argv[0]);
+  /* If Y==0 and X will fit in a 64-bit int,
+  ** handle the rounding directly,
+  ** otherwise use printf.
+  */
+  if( n==0 && r>=0 && r<LARGEST_INT64-1 ){
+    r = (double)((sqlite_int64)(r+0.5));
+  }else if( n==0 && r<0 && (-r)<LARGEST_INT64-1 ){
+    r = -(double)((sqlite_int64)((-r)+0.5));
+  }else{
+    if ( n>0 ){
+	  p = pow(10, n);
+	  r = (double) ((sqlite_int64)(r * p)) / p;
+	} else {
+      p = pow(10, -n);
+      r = (double) ((sqlite_int64)(r / p)) * p;
+	}
+  }
+  sqlite3_result_double(context, r);
+}
+#endif
 
 /*
 ** Given a string (s) in the first argument and an integer (n) in the second returns the 
@@ -1928,6 +1966,30 @@ databaseFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
 }
 
 /*
+** Implementation of random().  Return a random integer.  
+*/
+static void randomFunc(
+  sqlite3_context *context,
+  int argc,
+  sqlite3_value **argv
+){
+  sqlite_int64 r;
+  sqlite3_randomness(sizeof(r), &r);
+  if( r<0 ){
+    /* We need to prevent a random number of 0x8000000000000000 
+    ** (or -9223372036854775808) since when you do abs() of that
+    ** number of you get the same value back again.  To do this
+    ** in a way that is testable, mask the sign bit off of negative
+    ** values, resulting in a positive value.  Then take the 
+    ** 2s complement of that positive value.  The end result can
+    ** therefore be no less than -9223372036854775807.
+    */
+    r = -(r & LARGEST_INT64);
+  }
+  sqlite3_result_int64(context, r);
+}
+
+/*
 ** This function registered all of the above C functions as SQL
 ** functions.  This should be the only routine in this file with
 ** external linkage.
@@ -1968,7 +2030,13 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "floor",              1, 0, SQLITE_UTF8,    0, floorFunc },
 
     { "pi",                 0, 0, SQLITE_UTF8,    1, piFunc },
-
+	
+	{ "rand",               0, 0, SQLITE_UTF8,    0, randomFunc },
+	{ "rand",               1, 0, SQLITE_UTF8,    0, randomFunc },
+	
+#ifndef SQLITE_OMIT_FLOATING_POINT
+	{ "truncate",           2, 0, SQLITE_UTF8,    0, truncateFunc },
+#endif
 
     /* string */
     { "ascii",              1, 0, SQLITE_UTF8,    0, asciiFunc },
