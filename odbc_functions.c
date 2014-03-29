@@ -587,6 +587,36 @@ static void replicateFunc(sqlite3_context *context, int argc, sqlite3_value **ar
   }
 }
 
+/** INSERT( string_exp1, start, length, string_exp2) (ODBC 1.0)
+*   Returns a character string where length characters have been deleted from string_exp1, beginning at start, and where string_exp2 has been inserted into string_exp, beginning at start.
+*	e.g. INSERT('Goldman', 2, 4, 'xx') => Gxxan
+*/
+void insertFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
+  char *z1, *z2, *out;
+  int n, n2, start, len;
+  
+  n = sqlite3_value_bytes(argv[0]);
+  z1 = (char*)sqlite3_value_text(argv[0]);
+  start = sqlite3_value_int(argv[1]) - 1;
+  len = sqlite3_value_int(argv[2]);
+  n2 = sqlite3_value_bytes(argv[3]);
+  z2 = (char*)sqlite3_value_text(argv[3]);
+  
+  if (start <= 0 || len < 0) {
+    sqlite3_result_null(context);
+	return;
+  }
+  
+  out = (char*)sqlite3_malloc(n - len + n2 + 1);
+  
+  strncpy(out, z1, start);
+  strncpy(out + start, z2, n2);
+  strncpy(out + start + n2, z1 + start + len, n - start - len);
+  
+  sqlite3_result_text(context, out, n - len + n2, sqlite3_free);
+}
+
+
 /* 
 ** Some systems (win32 among others) don't have an isblank function, this will emulate it.
 ** This function is not UFT-8 safe since it only analyses a byte character.
@@ -846,7 +876,7 @@ static void concatFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
         lenall += lens[i];
     }
 
-    char* all = (char*)malloc((lenall)*sizeof(argv));
+    char* all = (char*)sqlite3_malloc(lenall + 1);
     all[lenall - 1] = '\0';
 
     for(i = 0; i < argc; i++)
@@ -856,7 +886,7 @@ static void concatFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
     }
 
     sqlite3_result_text(context, all, lenall, SQLITE_TRANSIENT);
-    free(all);
+    sqlite3_free(all);
 }
 
 /*
@@ -2050,6 +2080,7 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "left",               2, 0, SQLITE_UTF8,    0, leftFunc },
     { "right",              2, 0, SQLITE_UTF8,    0, rightFunc },
     { "concat",            -1, 0, SQLITE_UTF8,    0, concatFunc },
+	{ "insert",             4, 0, SQLITE_UTF8,    0, insertFunc },
 	
 #ifndef HAVE_TRIM
     { "ltrim",              1, 0, SQLITE_UTF8,    0, ltrimFunc },
