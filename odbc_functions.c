@@ -1788,16 +1788,21 @@ static int parseDateOrTime(
 */
 static void ctimeFunc(
   sqlite3_context *context,
-  int NotUsed,
-  sqlite3_value **NotUsed2
+  int argc,
+  sqlite3_value **argv
 ){
   DateTime x;
+  int secPrec = 0;
   memset(&x, 0, sizeof(x));
+  
+  if (argc > 0) {
+    secPrec = sqlite3_value_int(argv[0]);
+  }
   
   if( setDateTimeToLocalCurrent(context, &x)==0){
     char zBuf[100];
     computeHMS(&x);
-    sqlite3_snprintf(sizeof(zBuf), zBuf, "%02d:%02d:%02d", x.h, x.m, (int)x.s);
+    sqlite3_snprintf(sizeof(zBuf), zBuf, "%02d:%02d:%02.*f", x.h, x.m, secPrec, x.s);
     sqlite3_result_text(context, zBuf, -1, SQLITE_TRANSIENT);
   }
 }
@@ -1809,8 +1814,8 @@ static void ctimeFunc(
 */
 static void cdateFunc(
   sqlite3_context *context,
-  int NotUsed,
-  sqlite3_value **NotUsed2
+  int argc,
+  sqlite3_value **argv
 ){
   DateTime x;
   memset(&x, 0, sizeof(x));
@@ -1830,17 +1835,22 @@ static void cdateFunc(
 */
 static void ctimestampFunc(
   sqlite3_context *context,
-  int NotUsed,
-  sqlite3_value **NotUsed2
+  int argc,
+  sqlite3_value **argv
 ){
   DateTime x;
+  int secPrec = 0;
   memset(&x, 0, sizeof(x));
+  
+  if (argc > 0) {
+    secPrec = sqlite3_value_int(argv[0]);
+  }
   
   if( setDateTimeToLocalCurrent(context, &x)==0){
     char zBuf[100];
     computeYMD_HMS(&x);
-    sqlite3_snprintf(sizeof(zBuf), zBuf, "%04d-%02d-%02d %02d:%02d:%02d",
-                     x.Y, x.M, x.D, x.h, x.m, (int)(x.s));
+    sqlite3_snprintf(sizeof(zBuf), zBuf, "%04d-%02d-%02d %02d:%02d:%02.*f",
+                     x.Y, x.M, x.D, x.h, x.m, secPrec, x.s);
     sqlite3_result_text(context, zBuf, -1, SQLITE_TRANSIENT);
   }
 }
