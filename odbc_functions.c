@@ -653,7 +653,7 @@ static void bitlengthFunc(
 }
 
 /*
-** Implementation of the bit_length() function
+** Implementation of the char_length() function (a copy of length())
 */
 static void lengthFunc(
   sqlite3_context *context,
@@ -679,6 +679,30 @@ static void lengthFunc(
         SKIP_UTF8(z);
       }
       sqlite3_result_int(context, len);
+      break;
+    }
+    default: {
+      sqlite3_result_null(context);
+      break;
+    }
+  }
+}
+
+/*
+** Implementation of the octet_length() function
+*/
+static void octetlengthFunc(
+  sqlite3_context *context,
+  int argc,
+  sqlite3_value **argv
+){
+  assert( argc==1 );
+  switch( sqlite3_value_type(argv[0]) ){
+    case SQLITE_BLOB:
+    case SQLITE_INTEGER:
+	case SQLITE_TEXT:
+    case SQLITE_FLOAT: {
+      sqlite3_result_int(context, sqlite3_value_bytes(argv[0]));
       break;
     }
     default: {
@@ -2132,27 +2156,17 @@ databaseFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
 }
 
 /*
-** Implementation of random().  Return a random integer.  
+** Implementation of rand().  Return a random floating point number.  
 */
-static void randomFunc(
+static void randFunc(
   sqlite3_context *context,
   int argc,
   sqlite3_value **argv
 ){
-  sqlite_int64 r;
+  unsigned char r;
+  
   sqlite3_randomness(sizeof(r), &r);
-  if( r<0 ){
-    /* We need to prevent a random number of 0x8000000000000000 
-    ** (or -9223372036854775808) since when you do abs() of that
-    ** number of you get the same value back again.  To do this
-    ** in a way that is testable, mask the sign bit off of negative
-    ** values, resulting in a positive value.  Then take the 
-    ** 2s complement of that positive value.  The end result can
-    ** therefore be no less than -9223372036854775807.
-    */
-    r = -(r & LARGEST_INT64);
-  }
-  sqlite3_result_int64(context, r);
+  sqlite3_result_double(context, (double) r / 0xFF);
 }
 
 /*
@@ -2197,8 +2211,8 @@ int RegisterExtensionFunctions(sqlite3 *db){
 
     { "pi",                 0, 0, SQLITE_UTF8,    1, piFunc },
 	
-	{ "rand",               0, 0, SQLITE_UTF8,    0, randomFunc },
-	{ "rand",               1, 0, SQLITE_UTF8,    0, randomFunc },
+	{ "rand",               0, 0, SQLITE_UTF8,    0, randFunc },
+	{ "rand",               1, 0, SQLITE_UTF8,    0, randFunc },
 	
 #ifndef SQLITE_OMIT_FLOATING_POINT
 	{ "truncate",           2, 0, SQLITE_UTF8,    0, truncateFunc },
@@ -2221,7 +2235,7 @@ int RegisterExtensionFunctions(sqlite3 *db){
 	{ "bit_length",         1, 0, SQLITE_UTF8,    0, bitlengthFunc },
 	{ "char_length",        1, 0, SQLITE_UTF8,    0, lengthFunc },
 	{ "character_length",   1, 0, SQLITE_UTF8,    0, lengthFunc },
-	{ "octet_length",       1, 0, SQLITE_UTF8,    0, lengthFunc },
+	{ "octet_length",       1, 0, SQLITE_UTF8,    0, octetlengthFunc },
 	
 #ifndef HAVE_TRIM
     { "ltrim",              1, 0, SQLITE_UTF8,    0, ltrimFunc },
