@@ -2,13 +2,21 @@ sqlite-odbc-functions
 =====================
 
 Adds ODBC-compatible functions to SQLite, eg to use with the ODBC driver at http://www.ch-werner.de/sqliteodbc/
-Based on 'extension-functions.c' by Liam Healy from http://www.sqlite.org/contrib/
+Includes some code based on on 'extension-functions.c' by Liam Healy from http://www.sqlite.org/contrib/
 Code released into the public domain.
 
-See http://msdn.microsoft.com/en-us/library/ms711813(v=vs.85).aspx for ODBC functions
+Installation
+============
+On Windows, download the dll's from https://github.com/EionRobb/sqlite-odbc-functions/releases and copy to C:\Windows\System32 (renaming the `_64bit.dll` to just `.dll` if using 64bit Windows)
+
+Usage
+=====
+Add to the DSN with ";LoadExt=sqlite_odbc_functions", eg "DRIVER={SQLite3 ODBC Driver};Database=:memory:;JDConv=1;LoadExt=sqlite_odbc_functions;OEMCP=1;OEMCPTranslation=1;".  This can also be done at runtime using `load_extension()` https://www.sqlite.org/lang_corefunc.html#load_extension eg `SELECT load_extension('sqlite_odbc_functions');`
+Calling standard ODBC functions should be done with the `{fn ...}` syntax, eg `{fn LCASE('Your Text Here')}` to be portable across other ODBC drivers.  The SQLite ODBC driver will remove the `{fn` syntax internally, so you can optionally call the function directly, eg `LCASE('Your Text Here')` however this is less-portable.
 
 Supported ODBC functions:
 =========================
+See http://msdn.microsoft.com/en-us/library/ms711813(v=vs.85).aspx for ODBC function definitions
 
 String Functions:
 -----------------
